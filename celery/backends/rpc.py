@@ -13,6 +13,7 @@ from kombu.utils.compat import register_after_fork
 from kombu.utils.objects import cached_property
 
 from celery import states
+from celery import signals
 from celery._state import current_task, task_join_will_block
 from celery.five import items, range
 
@@ -196,7 +197,7 @@ class RPCBackend(base.Backend, AsyncBackendMixin):
     def as_uri(self, include_password=True):
         return 'rpc://'
 
-    def store_result(self, task_id, result, state,
+    def _store_result(self, task_id, result, state,
                      traceback=None, request=None, **kwargs):
         """Send task return value and state."""
         routing_key, correlation_id = self.destination_for(task_id, request)
@@ -213,13 +214,12 @@ class RPCBackend(base.Backend, AsyncBackendMixin):
                 declare=self.on_reply_declare(task_id),
                 delivery_mode=self.delivery_mode,
             )
-        return result
 
     def _to_result(self, task_id, state, result, traceback, request):
         return {
             'task_id': task_id,
             'status': state,
-            'result': self.encode_result(result, state),
+            'result': result,
             'traceback': traceback,
             'children': self.current_task_children(request),
         }
@@ -256,6 +256,10 @@ class RPCBackend(base.Backend, AsyncBackendMixin):
 
         if latest:
             latest.requeue()
+
+            if signals.after_result_received.receivers:
+                signals.after_result_received.send(
+                    task_id=task_id, payload=payload)
             return self._set_cache_by_message(task_id, latest)
         else:
             # no new state, use previous

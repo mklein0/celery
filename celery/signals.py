@@ -16,6 +16,7 @@ from .utils.dispatch import Signal
 
 __all__ = [
     'before_task_publish', 'after_task_publish',
+    'before_result_publish', 'after_result_publish', 'after_result_received',
     'task_prerun', 'task_postrun', 'task_success',
     'task_retry', 'task_failure', 'task_revoked', 'celeryd_init',
     'celeryd_after_setup', 'worker_init', 'worker_process_init',
@@ -37,6 +38,18 @@ before_task_publish = Signal(
 after_task_publish = Signal(
     name='after_task_publish',
     providing_args={'body', 'exchange', 'routing_key'},
+)
+before_result_publish = Signal(
+    name='before_result_publish',
+    providing_args={'task_id', 'result', 'state', 'traceback', 'request'},
+)
+after_result_publish = Signal(
+    name='after_result_publish',
+    providing_args={'task_id', 'result', 'state', 'traceback', 'request'},
+)
+after_result_received = Signal(
+    name='after_result_received',
+    providing_args={'task_id', 'payload'},
 )
 task_prerun = Signal(
     name='task_prerun',

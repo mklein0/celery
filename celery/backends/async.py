@@ -12,6 +12,7 @@ from kombu.utils.compat import detect_environment
 from kombu.utils.objects import cached_property
 
 from celery import states
+from celery import signals
 from celery.exceptions import TimeoutError
 from celery.five import Empty, monotonic
 from celery.utils.threads import THREAD_TIMEOUT_MAX
@@ -287,6 +288,11 @@ class BaseResultConsumer(object):
                 # before it was added to _pending_results.
                 self._pending_messages.put(task_id, meta)
             else:
+                send_after_result = signals.after_result_received.send
+                after_receivers = signals.after_result_received.receivers
+                if after_receivers:
+                    send_after_result(sender=None, task_id=task_id, payload=meta)
+
                 result._maybe_set_cache(meta)
                 buckets = self.buckets
                 try:

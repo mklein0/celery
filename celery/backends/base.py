@@ -24,6 +24,7 @@ from kombu.utils.encoding import bytes_to_str, ensure_bytes, from_utf8
 from kombu.utils.url import maybe_sanitize_url
 
 from celery import states
+from celery import signals
 from celery import current_app, group, maybe_signature
 from celery._state import get_current_task
 from celery.exceptions import (
@@ -304,10 +305,25 @@ class Backend(object):
     def store_result(self, task_id, result, state,
                      traceback=None, request=None, **kwargs):
         """Update task state and result."""
-        result = self.encode_result(result, state)
-        self._store_result(task_id, result, state, traceback,
+
+        send_before_result = signals.before_result_publish.send
+        before_receivers = signals.before_result_publish.receivers
+        send_after_result = signals.after_result_publish.send
+        after_receivers = signals.after_result_publish.receivers
+
+        task = get_current_task()
+
+        if before_receivers:
+            send_before_result(sender=task, task_id=task_id, result=result, state=state, request=request, **kwargs)
+
+        retval = self.encode_result(result, state)
+        self._store_result(task_id, retval, state, traceback,
                            request=request, **kwargs)
-        return result
+
+        if after_receivers:
+            send_after_result(sender=task, task_id=task_id, result=result, state=state, request=request, **kwargs)
+
+        return retval
 
     def forget(self, task_id):
         self._cache.pop(task_id, None)
@@ -352,6 +368,10 @@ class Backend(object):
         meta = self._get_task_meta_for(task_id)
         if cache and meta.get('status') == states.SUCCESS:
             self._cache[task_id] = meta
+
+            if signals.after_result_received.receivers:
+                signals.after_result_received.send(
+                    task_id=task_id, payload=meta)
         return meta
 
     def reload_task_result(self, task_id):

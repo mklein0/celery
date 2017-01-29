@@ -10,6 +10,7 @@ from operator import itemgetter
 from kombu import Exchange, Queue, Producer, Consumer
 
 from celery import states
+from celery import signals
 from celery.exceptions import TimeoutError
 from celery.five import range, monotonic
 from celery.utils import deprecated
@@ -108,7 +109,7 @@ class AMQPBackend(BaseBackend):
             return self.rkey(task_id), request.correlation_id or task_id
         return self.rkey(task_id), task_id
 
-    def store_result(self, task_id, result, state,
+    def _store_result(self, task_id, result, state,
                      traceback=None, request=None, **kwargs):
         """Send task return value and state."""
         routing_key, correlation_id = self.destination_for(task_id, request)
@@ -117,7 +118,7 @@ class AMQPBackend(BaseBackend):
         with self.app.amqp.producer_pool.acquire(block=True) as producer:
             producer.publish(
                 {'task_id': task_id, 'status': state,
-                 'result': self.encode_result(result, state),
+                 'result': result,
                  'traceback': traceback,
                  'children': self.current_task_children(request)},
                 exchange=self.exchange,
@@ -128,7 +129,6 @@ class AMQPBackend(BaseBackend):
                 declare=self.on_reply_declare(task_id),
                 delivery_mode=self.delivery_mode,
             )
-        return result
 
     def on_reply_declare(self, task_id):
         return [self._create_binding(task_id)]
@@ -176,6 +176,10 @@ class AMQPBackend(BaseBackend):
                 payload = self._cache[task_id] = self.meta_from_decoded(
                     latest.payload)
                 latest.requeue()
+
+                if signals.after_result_received.receivers:
+                    signals.after_result_received.send(
+                        task_id=task_id, payload=payload)
                 return payload
             else:
                 # no new state, use previous
